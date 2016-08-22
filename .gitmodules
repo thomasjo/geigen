@@ -1,0 +1,4 @@
+[submodule "vendor/cudalicious"]
+	path = vendor/cudalicious
+	url = https://github.com/thomasjo/cudalicious.git
+	branch = master
