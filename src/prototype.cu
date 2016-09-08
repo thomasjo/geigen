@@ -23,7 +23,8 @@ void print_matrix(std::vector<T> matrix, int n)
 }
 
 __device__
-float get_reflector_coefficient(const float* source, const float* tau, const int n, const int reflector_index, const int row, const int col) {
+float get_reflector_coefficient(const float* source, const float* tau, const int n, const int reflector_index, const int row, const int col)
+{
   if (row < reflector_index || col < reflector_index) return (row == col) ? 1.0f : 0.0f;
 
   const auto row_coefficient = (row == reflector_index) ? 1.0f : source[reflector_index * n + row];
