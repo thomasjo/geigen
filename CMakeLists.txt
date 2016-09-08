@@ -10,13 +10,16 @@ find_package(CUDA REQUIRED)
 set(CUDA_PROPAGATE_HOST_FLAGS OFF)
 set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -arch=sm_30 -std=c++11")
 
-cuda_add_executable(prototype
-  src/prototype.cu
+# Add vendored dependencies.
+# add_subdirectory(vendor/cudalicious)
+
+include_directories(
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/cudalicious/include
 )
 
-target_include_directories(prototype PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
+cuda_add_executable(prototype
+  src/prototype.cu
 )
 
 target_link_libraries(prototype

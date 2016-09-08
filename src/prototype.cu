@@ -7,6 +7,8 @@
 #include <cuda_runtime.h>
 #include <cusolverDn.h>
 
+#include <cudalicious/cudalicious.h>
+
 #define IDX2C(i,j,ld) (((j)*(ld))+(i))
 
 template<typename T>
@@ -81,64 +83,40 @@ int main(int argc, char* argv[])
   assert(blas_status == CUBLAS_STATUS_SUCCESS);
 
   // Allocate device memory.
-  float* dev_matrix;
-  auto cuda_status = cudaMalloc(&dev_matrix, sizeof(float) * n * n);
-  assert(cuda_status == cudaSuccess);
-
-  float* dev_tau;
-  cuda_status = cudaMalloc(&dev_tau, sizeof(float) * n);
-  assert(cuda_status == cudaSuccess);
-
-  int* dev_info;
-  cuda_status = cudaMalloc(&dev_info, sizeof(int));
-  assert(cuda_status == cudaSuccess);
+  auto dev_matrix = cuda::copy_to_device(matrix);
+  auto dev_tau = cuda::allocate<float>(n);
+  auto dev_info = cuda::allocate<int>(1);
 
   // Determine workspace size.
   int workspace_size;
   solver_status = cusolverDnSgeqrf_bufferSize(solver_handle, n, n, dev_matrix, n, &workspace_size);
   assert(solver_status == CUSOLVER_STATUS_SUCCESS);
 
-  float* dev_workspace;
-  cuda_status = cudaMalloc(&dev_workspace, sizeof(float) * workspace_size);
-  assert(cuda_status == cudaSuccess);
-
-  // Copy data to device memory.
-  cuda_status = cudaMemcpy(dev_matrix, matrix.data(), sizeof(float) * n * n, cudaMemcpyHostToDevice);
-  assert(cuda_status == cudaSuccess);
+  auto dev_workspace = cuda::allocate<float>(workspace_size);
 
   // Compute QR factorization.
   solver_status = cusolverDnSgeqrf(solver_handle, n, n, dev_matrix, n, dev_tau, dev_workspace, workspace_size, dev_info);
   assert(solver_status == CUSOLVER_STATUS_SUCCESS);
 
   int info;
-  cuda_status = cudaMemcpy(&info, dev_info, sizeof(int), cudaMemcpyDeviceToHost);
-  assert(cuda_status == cudaSuccess);
+  cuda::copy_to_host(&info, dev_info, 1);
   assert(info == 0);
 
   const dim3 blocks(2, 2);
   const dim3 threads(2, 2);
 
   // Allocate device memory.
-  float* dev_q;
-  cuda_status = cudaMalloc(&dev_q, sizeof(float) * n * n);
-  assert(cuda_status == cudaSuccess);
+  auto dev_q = cuda::allocate<float>(n * n);
 
-  // Initialize device matrix to unity.
-  // cuda_status = cudaMemset(dev_q, 0.0f, sizeof(float) * n * n);
-  // assert(cuda_status == cudaSuccess);
-
+  // Execute kernel.
   construct_q_matrix<<<blocks, threads>>>(dev_q, dev_matrix, dev_tau, n);
-  cuda_status = cudaDeviceSynchronize();
-  assert(cuda_status == cudaSuccess);
+  cuda::device_sync();
 
   // Allocate device memory.
-  float* dev_qq;
-  cuda_status = cudaMalloc(&dev_qq, sizeof(float) * n * n);
-  assert(cuda_status == cudaSuccess);
+  auto dev_qq = cuda::allocate<float>(n * n);
 
   // Copy data to device memory.
-  cuda_status = cudaMemcpy(dev_matrix, matrix.data(), sizeof(float) * n * n, cudaMemcpyHostToDevice);
-  assert(cuda_status == cudaSuccess);
+  cuda::copy_to_device(dev_matrix, matrix.data(), matrix.size());
 
   // --
   // Simulate a single iteration of traditional QR algorithm.
@@ -151,8 +129,7 @@ int main(int argc, char* argv[])
   assert(blas_status == CUBLAS_STATUS_SUCCESS);
 
   std::vector<float> result(n * n);
-  cuda_status = cudaMemcpy(result.data(), dev_qq, sizeof(float) * n * n, cudaMemcpyDeviceToHost);
-  assert(cuda_status == cudaSuccess);
+  cuda::copy_to_host(result, dev_qq);
   std::cout << "\nResult:\n";
   print_matrix(result, n);
   // --
@@ -164,17 +141,17 @@ int main(int argc, char* argv[])
   for (const auto& t : tau) std::cout << t << ", ";
   std::cout << "\n";
 
-  if (dev_qq)        cudaFree(dev_qq);
-  if (dev_q)         cudaFree(dev_q);
-  if (dev_matrix)    cudaFree(dev_matrix);
-  if (dev_tau)       cudaFree(dev_tau);
-  if (dev_workspace) cudaFree(dev_workspace);
-  if (dev_info)      cudaFree(dev_info);
+  cuda::free(dev_qq);
+  cuda::free(dev_q);
+  cuda::free(dev_matrix);
+  cuda::free(dev_tau);
+  cuda::free(dev_workspace);;
+  cuda::free(dev_info);
 
   if (solver_handle) cusolverDnDestroy(solver_handle);
   if (blas_handle)   cublasDestroy(blas_handle);
 
-  cudaDeviceReset();
+  cuda::device_reset();
 
   return 0;
 }
