@@ -121,13 +121,9 @@ int main(int argc, char* argv[])
 
     const dim3 blocks(2, 2);
     const dim3 threads(2, 2);
-
-    // Execute kernel.
     construct_q_matrix<<<blocks, threads>>>(dev_q, dev_qr, dev_tau, n);
     cuda::device_sync();
 
-    // --
-    // Simulate a single iteration of traditional QR algorithm.
     constexpr auto alpha = 1.0f;
     constexpr auto beta = 0.0f;
     blas_status = cublasSgemm(blas_handle, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, &alpha, dev_q, n, dev_matrix, n, &beta, dev_temp, n);
@@ -141,7 +137,6 @@ int main(int argc, char* argv[])
 
   std::cout << "\nEigenvalue matrix:\n";
   print_device_matrix(dev_matrix, n);
-  // --
 
   cuda::free(dev_temp);
   cuda::free(dev_q);
