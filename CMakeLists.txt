@@ -1,16 +1,13 @@
 cmake_minimum_required(VERSION 3.2 FATAL_ERROR)
 
 project(Geigen CXX)
-set(CMAKE_CXX_STANDARD 14)
 
-# Resolve CUDA dependency.
 find_package(CUDA REQUIRED)
 
-# Set CUDA/nvcc compilation flags.
-set(CUDA_PROPAGATE_HOST_FLAGS OFF)
+set(CMAKE_CXX_STANDARD 14)
 set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -arch=sm_30 -std=c++11")
 
-# Add vendored dependencies.
+# Vendored dependencies.
 # add_subdirectory(vendor/cudalicious)
 
 include_directories(
