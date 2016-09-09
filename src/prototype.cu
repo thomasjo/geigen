@@ -22,6 +22,14 @@ void print_matrix(std::vector<T> matrix, int n)
   }
 }
 
+template<typename T>
+void print_device_matrix(T* dev_ptr, int n)
+{
+  std::vector<float> v(n * n);
+  cuda::copy_to_host(v, dev_ptr);
+  print_matrix(v, n);
+}
+
 __device__
 float get_reflector_coefficient(const float* source, const float* tau, const int n, const int reflector_index, const int row, const int col)
 {
@@ -84,6 +92,8 @@ int main(int argc, char* argv[])
   assert(blas_status == CUBLAS_STATUS_SUCCESS);
 
   // Allocate device memory.
+  // const auto dev_input = cuda::copy_to_device(matrix);
+  // auto dev_matrix = cuda::copy_on_device(dev_input, matrix.size());
   auto dev_matrix = cuda::copy_to_device(matrix);
   auto dev_tau = cuda::allocate<float>(n);
   auto dev_info = cuda::allocate<int>(1);
@@ -94,63 +104,55 @@ int main(int argc, char* argv[])
   assert(solver_status == CUSOLVER_STATUS_SUCCESS);
 
   auto dev_workspace = cuda::allocate<float>(workspace_size);
+  auto dev_qr = cuda::allocate<float>(matrix.size());
+  auto dev_q = cuda::allocate<float>(matrix.size());
+  auto dev_temp = cuda::allocate<float>(matrix.size());
 
-  // Compute QR factorization.
-  solver_status = cusolverDnSgeqrf(solver_handle, n, n, dev_matrix, n, dev_tau, dev_workspace, workspace_size, dev_info);
-  assert(solver_status == CUSOLVER_STATUS_SUCCESS);
+  cuda::copy_on_device(dev_qr, dev_matrix, matrix.size());
 
-  int info;
-  cuda::copy_to_host(&info, dev_info, 1);
-  assert(info == 0);
+  for (auto iter = 0; iter < 50; ++iter) {
+    // Compute QR factorization.
+    solver_status = cusolverDnSgeqrf(solver_handle, n, n, dev_qr, n, dev_tau, dev_workspace, workspace_size, dev_info);
+    assert(solver_status == CUSOLVER_STATUS_SUCCESS);
 
-  const dim3 blocks(2, 2);
-  const dim3 threads(2, 2);
+    int info;
+    cuda::copy_to_host(&info, dev_info, 1);
+    assert(info == 0);
 
-  // Allocate device memory.
-  auto dev_q = cuda::allocate<float>(n * n);
+    const dim3 blocks(2, 2);
+    const dim3 threads(2, 2);
 
-  // Execute kernel.
-  construct_q_matrix<<<blocks, threads>>>(dev_q, dev_matrix, dev_tau, n);
-  cuda::device_sync();
+    // Execute kernel.
+    construct_q_matrix<<<blocks, threads>>>(dev_q, dev_qr, dev_tau, n);
+    cuda::device_sync();
 
-  // Allocate device memory.
-  auto dev_qq = cuda::allocate<float>(n * n);
+    // --
+    // Simulate a single iteration of traditional QR algorithm.
+    constexpr auto alpha = 1.0f;
+    constexpr auto beta = 0.0f;
+    blas_status = cublasSgemm(blas_handle, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, &alpha, dev_q, n, dev_matrix, n, &beta, dev_temp, n);
+    assert(blas_status == CUBLAS_STATUS_SUCCESS);
 
-  // Copy data to device memory.
-  cuda::copy_to_device(dev_matrix, matrix.data(), matrix.size());
+    blas_status = cublasSgemm(blas_handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, dev_temp, n, dev_q, n, &beta, dev_matrix, n);
+    assert(blas_status == CUBLAS_STATUS_SUCCESS);
 
-  // --
-  // Simulate a single iteration of traditional QR algorithm.
-  const auto alpha = 1.0f;
-  const auto beta = 0.0f;
-  blas_status = cublasSgemm(blas_handle, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, &alpha, dev_q, n, dev_matrix, n, &beta, dev_qq, n);
-  assert(blas_status == CUBLAS_STATUS_SUCCESS);
+    cuda::copy_on_device(dev_qr, dev_matrix, matrix.size());
+  }
 
-  blas_status = cublasSgemm(blas_handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, dev_qq, n, dev_q, n, &beta, dev_qq, n);
-  assert(blas_status == CUBLAS_STATUS_SUCCESS);
-
-  std::vector<float> result(n * n);
-  cuda::copy_to_host(result, dev_qq);
-  std::cout << "\nResult:\n";
-  print_matrix(result, n);
+  std::cout << "\nEigenvalue matrix:\n";
+  print_device_matrix(dev_matrix, n);
   // --
 
-  std::vector<float> tau(n);
-  cuda_status = cudaMemcpy(tau.data(), dev_tau, sizeof(float) * n, cudaMemcpyDeviceToHost);
-  assert(cuda_status == cudaSuccess);
-  std::cout << "\nTAU: ";
-  for (const auto& t : tau) std::cout << t << ", ";
-  std::cout << "\n";
-
-  cuda::free(dev_qq);
+  cuda::free(dev_temp);
   cuda::free(dev_q);
+  cuda::free(dev_qr);
   cuda::free(dev_matrix);
   cuda::free(dev_tau);
   cuda::free(dev_workspace);;
   cuda::free(dev_info);
 
+  if (blas_handle) cublasDestroy(blas_handle);
   if (solver_handle) cusolverDnDestroy(solver_handle);
-  if (blas_handle)   cublasDestroy(blas_handle);
 
   cuda::device_reset();
 
