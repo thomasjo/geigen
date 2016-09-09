@@ -12,7 +12,7 @@
 #define IDX2C(i,j,ld) (((j)*(ld))+(i))
 
 template<typename T>
-void print_matrix(std::vector<T> matrix, int n)
+void print_matrix(const std::vector<T>& matrix, int n)
 {
   for (auto i = 0; i < n; ++i) {
     for (auto j = 0; j < n; ++j) {
