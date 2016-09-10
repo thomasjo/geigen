@@ -105,7 +105,6 @@ int main(int argc, char* argv[])
   auto dev_info = cuda::allocate<int>(1);
 
   auto dev_q = cuda::allocate<float>(matrix.size());
-  auto dev_temp = cuda::allocate<float>(matrix.size());
 
   cuda::copy_on_device(dev_qr, dev_matrix, matrix.size());
 
@@ -125,10 +124,10 @@ int main(int argc, char* argv[])
 
     constexpr auto alpha = 1.0f;
     constexpr auto beta = 0.0f;
-    blas_status = cublasSgemm(blas_handle, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, &alpha, dev_q, n, dev_matrix, n, &beta, dev_temp, n);
+    blas_status = cublasSgemm(blas_handle, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, &alpha, dev_q, n, dev_matrix, n, &beta, dev_qr, n);
     assert(blas_status == CUBLAS_STATUS_SUCCESS);
 
-    blas_status = cublasSgemm(blas_handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, dev_temp, n, dev_q, n, &beta, dev_matrix, n);
+    blas_status = cublasSgemm(blas_handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, dev_qr, n, dev_q, n, &beta, dev_matrix, n);
     assert(blas_status == CUBLAS_STATUS_SUCCESS);
 
     cuda::copy_on_device(dev_qr, dev_matrix, matrix.size());
@@ -137,14 +136,11 @@ int main(int argc, char* argv[])
   std::cout << "\nEigenvalue matrix:\n";
   print_device_matrix(dev_matrix, n);
 
-  cuda::free(dev_temp);
   cuda::free(dev_q);
-
   cuda::free(dev_info);
-  cuda::free(dev_workspace);;
+  cuda::free(dev_workspace);
   cuda::free(dev_tau);
   cuda::free(dev_qr);
-
   cuda::free(dev_matrix);
 
   if (blas_handle) cublasDestroy(blas_handle);
