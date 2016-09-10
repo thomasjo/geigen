@@ -92,19 +92,18 @@ int main(int argc, char* argv[])
   assert(blas_status == CUBLAS_STATUS_SUCCESS);
 
   // Allocate device memory.
-  // const auto dev_input = cuda::copy_to_device(matrix);
-  // auto dev_matrix = cuda::copy_on_device(dev_input, matrix.size());
   auto dev_matrix = cuda::copy_to_device(matrix);
-  auto dev_tau = cuda::allocate<float>(n);
-  auto dev_info = cuda::allocate<int>(1);
 
   // Determine workspace size.
   int workspace_size;
   solver_status = cusolverDnSgeqrf_bufferSize(solver_handle, n, n, dev_matrix, n, &workspace_size);
   assert(solver_status == CUSOLVER_STATUS_SUCCESS);
 
-  auto dev_workspace = cuda::allocate<float>(workspace_size);
   auto dev_qr = cuda::allocate<float>(matrix.size());
+  auto dev_tau = cuda::allocate<float>(n);
+  auto dev_workspace = cuda::allocate<float>(workspace_size);
+  auto dev_info = cuda::allocate<int>(1);
+
   auto dev_q = cuda::allocate<float>(matrix.size());
   auto dev_temp = cuda::allocate<float>(matrix.size());
 
@@ -140,11 +139,13 @@ int main(int argc, char* argv[])
 
   cuda::free(dev_temp);
   cuda::free(dev_q);
-  cuda::free(dev_qr);
-  cuda::free(dev_matrix);
-  cuda::free(dev_tau);
-  cuda::free(dev_workspace);;
+
   cuda::free(dev_info);
+  cuda::free(dev_workspace);;
+  cuda::free(dev_tau);
+  cuda::free(dev_qr);
+
+  cuda::free(dev_matrix);
 
   if (blas_handle) cublasDestroy(blas_handle);
   if (solver_handle) cusolverDnDestroy(solver_handle);
