@@ -9,6 +9,8 @@
 
 #include <cudalicious/cudalicious.h>
 
+constexpr auto K_MAX = 50;
+
 template<typename T>
 void print_matrix(const std::vector<T>& matrix, const int n)
 {
@@ -68,7 +70,7 @@ void construct_q_matrix(float* q, const float* source, const float* tau, const i
   }
 }
 
-int main(int argc, char* argv[])
+int main()
 {
   const auto n = 4;
   const std::vector<float> matrix {
@@ -77,6 +79,7 @@ int main(int argc, char* argv[])
     -1,  0,  5, 2,
      0,  1,  2, 5,
   };
+  assert(matrix.size() == n * n);
 
   std::cout << "Input matrix:\n";
   print_matrix(matrix, n);
@@ -107,7 +110,7 @@ int main(int argc, char* argv[])
 
   cuda::copy_on_device(dev_qr, dev_matrix, matrix.size());
 
-  for (auto iter = 0; iter < 50; ++iter) {
+  for (auto k = 0; k < K_MAX; ++k) {
     // Compute QR factorization.
     solver_status = cusolverDnSgeqrf(solver_handle, n, n, dev_qr, n, dev_tau, dev_workspace, workspace_size, dev_info);
     assert(solver_status == CUSOLVER_STATUS_SUCCESS);
@@ -146,6 +149,4 @@ int main(int argc, char* argv[])
   if (solver_handle) cusolverDnDestroy(solver_handle);
 
   cuda::device_reset();
-
-  return 0;
 }
