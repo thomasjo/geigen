@@ -9,14 +9,13 @@
 
 #include <cudalicious/cudalicious.h>
 
-#define IDX2C(i,j,ld) (((j)*(ld))+(i))
-
 template<typename T>
-void print_matrix(const std::vector<T>& matrix, int n)
+void print_matrix(const std::vector<T>& matrix, const int n)
 {
   for (auto i = 0; i < n; ++i) {
     for (auto j = 0; j < n; ++j) {
-      std::cout << std::setprecision(6) << std::setw(12) << matrix[IDX2C(i, j, n)];
+      const auto idx = j * n + i;
+      std::cout << std::setprecision(6) << std::setw(12) << matrix[idx];
     }
     std::cout << "\n";
   }
