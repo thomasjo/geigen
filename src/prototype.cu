@@ -110,6 +110,13 @@ int main()
 
   cuda::copy_on_device(dev_qr, dev_matrix, matrix.size());
 
+  auto dev_eigvecs = cuda::copy_to_device(std::vector<float> {
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1,
+  });
+
   for (auto k = 0; k < K_MAX; ++k) {
     // Compute QR factorization.
     solver_status = cusolverDnSgeqrf(solver_handle, n, n, dev_qr, n, dev_tau, dev_workspace, workspace_size, dev_info);
@@ -126,17 +133,26 @@ int main()
 
     constexpr auto alpha = 1.0f;
     constexpr auto beta = 0.0f;
+
+    // Compute A_k = Q_k^T * A_(k-1) * Q_k --> A_k converges to eigenvalues of A_0.
     blas_status = cublasSgemm(blas_handle, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, &alpha, dev_q, n, dev_matrix, n, &beta, dev_qr, n);
     assert(blas_status == CUBLAS_STATUS_SUCCESS);
-
     blas_status = cublasSgemm(blas_handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, dev_qr, n, dev_q, n, &beta, dev_matrix, n);
     assert(blas_status == CUBLAS_STATUS_SUCCESS);
 
+    // Compute L_k = Q_k * Q_(k-1)..Q_0 --> L_k converges to eigenvectors of A_0.
+    blas_status = cublasSgemm(blas_handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, dev_eigvecs, n, dev_q, n, &beta, dev_qr, n);
+    cuda::copy_on_device(dev_eigvecs, dev_qr, matrix.size());
     cuda::copy_on_device(dev_qr, dev_matrix, matrix.size());
   }
 
   std::cout << "\nEigenvalue matrix:\n";
   print_device_matrix(dev_matrix, n);
+
+  std::cout<< "\nEigenvector matrix:\n";
+  print_device_matrix(dev_eigvecs, n);
+
+  cuda::free(dev_eigvecs);
 
   cuda::free(dev_q);
   cuda::free(dev_info);
