@@ -52,10 +52,6 @@ void construct_q_matrix(float* q, const float* source, const float* tau, const i
 
   if (idx >= n * n) return;
 
-  // TODO(thomasjo): Do this in a smarter manner.
-  q[idx] = (row == col) ? 1.0f : 0.0f;
-  __syncthreads();
-
   for (auto k = 0; k < n; ++k) {
     auto inner_product = 0.0f;
 
@@ -84,6 +80,14 @@ int main()
   std::cout << "Input matrix:\n";
   print_matrix(matrix, n);
 
+  const std::vector<float> identity {
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1,
+  };
+  assert(identity.size() == n * n);
+
   // Create handles.
   cusolverDnHandle_t solver_handle = nullptr;
   auto solver_status = cusolverDnCreate(&solver_handle);
@@ -106,16 +110,10 @@ int main()
   auto dev_workspace = cuda::allocate<float>(workspace_size);
   auto dev_info = cuda::allocate<int>(1);
 
-  auto dev_q = cuda::allocate<float>(matrix.size());
+  auto dev_q = cuda::copy_to_device(identity);
+  auto dev_eigvecs = cuda::copy_on_device(dev_q, matrix.size());
 
   cuda::copy_on_device(dev_qr, dev_matrix, matrix.size());
-
-  auto dev_eigvecs = cuda::copy_to_device(std::vector<float> {
-    1, 0, 0, 0,
-    0, 1, 0, 0,
-    0, 0, 1, 0,
-    0, 0, 0, 1,
-  });
 
   for (auto k = 0; k < K_MAX; ++k) {
     // Compute QR factorization.
@@ -125,6 +123,8 @@ int main()
     int info;
     cuda::copy_to_host(&info, dev_info, 1);
     assert(info == 0);
+
+    cuda::copy_to_device(dev_q, identity.data(), matrix.size());
 
     const dim3 blocks(2, 2);
     const dim3 threads(2, 2);
