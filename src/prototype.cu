@@ -26,7 +26,7 @@ void print_matrix(const std::vector<T>& matrix, const int n)
 template<typename T>
 void print_device_matrix(T* dev_ptr, int n)
 {
-  std::vector<float> v(n * n);
+  std::vector<T> v(n * n);
   cuda::copy_to_host(v, dev_ptr);
   print_matrix(v, n);
 }
