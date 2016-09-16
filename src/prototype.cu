@@ -3,11 +3,9 @@
 #include <iostream>
 #include <vector>
 
-#include <cublas_v2.h>
-#include <cuda_runtime.h>
-#include <cusolverDn.h>
-
-#include <cudalicious/cudalicious.h>
+#include <cudalicious/blas.hpp>
+#include <cudalicious/core.hpp>
+#include <cudalicious/solver.hpp>
 
 constexpr auto K_MAX = 50;
 
@@ -89,20 +87,15 @@ int main()
   assert(identity.size() == n * n);
 
   // Create handles.
-  cusolverDnHandle_t solver_handle = nullptr;
-  auto solver_status = cusolverDnCreate(&solver_handle);
-  assert(solver_status == CUSOLVER_STATUS_SUCCESS);
-
-  cublasHandle_t blas_handle = nullptr;
-  auto blas_status = cublasCreate(&blas_handle);
-  assert(blas_status == CUBLAS_STATUS_SUCCESS);
+  auto solver_handle = cuda::solver::initialize();
+  auto blas_handle = cuda::blas::initialize();
 
   // Allocate device memory.
   auto dev_matrix = cuda::copy_to_device(matrix);
 
   // Determine workspace size.
   int workspace_size;
-  solver_status = cusolverDnSgeqrf_bufferSize(solver_handle, n, n, dev_matrix, n, &workspace_size);
+  auto solver_status = cusolverDnSgeqrf_bufferSize(solver_handle, n, n, dev_matrix, n, &workspace_size);
   assert(solver_status == CUSOLVER_STATUS_SUCCESS);
 
   auto dev_qr = cuda::allocate<float>(matrix.size());
@@ -135,7 +128,7 @@ int main()
     constexpr auto beta = 0.0f;
 
     // Compute A_k = Q_k^T * A_(k-1) * Q_k --> A_k converges to eigenvalues of A_0.
-    blas_status = cublasSgemm(blas_handle, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, &alpha, dev_q, n, dev_matrix, n, &beta, dev_qr, n);
+    auto blas_status = cublasSgemm(blas_handle, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, &alpha, dev_q, n, dev_matrix, n, &beta, dev_qr, n);
     assert(blas_status == CUBLAS_STATUS_SUCCESS);
     blas_status = cublasSgemm(blas_handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, dev_qr, n, dev_q, n, &beta, dev_matrix, n);
     assert(blas_status == CUBLAS_STATUS_SUCCESS);
@@ -161,8 +154,8 @@ int main()
   cuda::free(dev_qr);
   cuda::free(dev_matrix);
 
-  if (blas_handle) cublasDestroy(blas_handle);
-  if (solver_handle) cusolverDnDestroy(solver_handle);
+  cuda::blas::release(blas_handle);
+  cuda::solver::release(solver_handle);
 
   cuda::device_reset();
 }
