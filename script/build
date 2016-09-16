@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -eu
+
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -P )"
+source_dir="$( dirname "${script_dir}" )"
+build_dir="${source_dir}/build"
+
+cmake -E make_directory ${build_dir}
+cmake -E chdir ${build_dir} cmake ${source_dir}
+cmake --build ${build_dir}
