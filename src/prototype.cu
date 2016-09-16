@@ -94,9 +94,7 @@ int main()
   auto dev_matrix = cuda::copy_to_device(matrix);
 
   // Determine workspace size.
-  int workspace_size;
-  auto solver_status = cusolverDnSgeqrf_bufferSize(solver_handle, n, n, dev_matrix, n, &workspace_size);
-  assert(solver_status == CUSOLVER_STATUS_SUCCESS);
+  auto workspace_size = cuda::solver::geqrf_buffer_size(solver_handle, n, n, dev_matrix, n);
 
   auto dev_qr = cuda::allocate<float>(matrix.size());
   auto dev_tau = cuda::allocate<float>(n);
@@ -110,12 +108,7 @@ int main()
 
   for (auto k = 0; k < K_MAX; ++k) {
     // Compute QR factorization.
-    solver_status = cusolverDnSgeqrf(solver_handle, n, n, dev_qr, n, dev_tau, dev_workspace, workspace_size, dev_info);
-    assert(solver_status == CUSOLVER_STATUS_SUCCESS);
-
-    int info;
-    cuda::copy_to_host(&info, dev_info, 1);
-    assert(info == 0);
+    cuda::solver::geqrf(solver_handle, n, n, dev_qr, n, dev_tau, dev_workspace, workspace_size, dev_info);
 
     cuda::copy_to_device(dev_q, identity.data(), matrix.size());
 
@@ -128,13 +121,12 @@ int main()
     constexpr auto beta = 0.0f;
 
     // Compute A_k = Q_k^T * A_(k-1) * Q_k --> A_k converges to eigenvalues of A_0.
-    auto blas_status = cublasSgemm(blas_handle, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, &alpha, dev_q, n, dev_matrix, n, &beta, dev_qr, n);
-    assert(blas_status == CUBLAS_STATUS_SUCCESS);
-    blas_status = cublasSgemm(blas_handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, dev_qr, n, dev_q, n, &beta, dev_matrix, n);
-    assert(blas_status == CUBLAS_STATUS_SUCCESS);
+    cuda::blas::gemm(blas_handle, n, n, n, alpha, dev_q, n, dev_matrix, n, beta, dev_qr, n, true);
+    cuda::blas::gemm(blas_handle, n, n, n, alpha, dev_qr, n, dev_q, n, beta, dev_matrix, n);
 
     // Compute L_k = Q_k * Q_(k-1)..Q_0 --> L_k converges to eigenvectors of A_0.
-    blas_status = cublasSgemm(blas_handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, dev_eigvecs, n, dev_q, n, &beta, dev_qr, n);
+    cuda::blas::gemm(blas_handle, n, n, n, alpha, dev_eigvecs, n, dev_q, n, beta, dev_qr, n);
+
     cuda::copy_on_device(dev_eigvecs, dev_qr, matrix.size());
     cuda::copy_on_device(dev_qr, dev_matrix, matrix.size());
   }
