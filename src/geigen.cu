@@ -1,3 +1,5 @@
+#include "geigen/geigen.h"
+
 #include <cassert>
 #include <iomanip>
 #include <iostream>
@@ -64,15 +66,9 @@ void construct_q_matrix(float* q, const float* source, const float* tau, const i
   }
 }
 
-int main()
+std::tuple<std::vector<float>, std::vector<float>>
+geigen::compute_eigensystem(const std::vector<float>& matrix, const size_t n)
 {
-  const auto n = 4;
-  const std::vector<float> matrix {
-     5, -2, -1, 0,
-    -2,  5,  0, 1,
-    -1,  0,  5, 2,
-     0,  1,  2, 5,
-  };
   assert(matrix.size() == n * n);
 
   std::cout << "Input matrix:\n";
@@ -131,11 +127,11 @@ int main()
     cuda::copy_on_device(dev_qr, dev_matrix, matrix.size());
   }
 
-  std::cout << "\nEigenvalue matrix:\n";
-  print_device_matrix(dev_matrix, n);
+  std::vector<float> eigvecs(n * n);
+  cuda::copy_to_host(eigvecs, dev_eigvecs);
 
-  std::cout<< "\nEigenvector matrix:\n";
-  print_device_matrix(dev_eigvecs, n);
+  std::vector<float> eigvals(n * n);
+  cuda::copy_to_host(eigvals, dev_matrix);
 
   cuda::free(dev_eigvecs);
 
@@ -150,4 +146,6 @@ int main()
   cuda::solver::release(solver_handle);
 
   cuda::device_reset();
+
+  return std::make_tuple(eigvals, eigvecs);
 }

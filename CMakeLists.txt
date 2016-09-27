@@ -16,11 +16,19 @@ include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/vendor/cudalicious/include
 )
 
-cuda_add_executable(prototype
-  src/prototype.cu
+cuda_add_library(geigen
+  src/geigen.cu
+)
+
+target_link_libraries(geigen
+  ${CUDA_cublas_LIBRARY}
+  ${CUDA_cusolver_LIBRARY}
+)
+
+add_executable(prototype
+  src/prototype.cpp
 )
 
 target_link_libraries(prototype
-  ${CUDA_cublas_LIBRARY}
-  ${CUDA_cusolver_LIBRARY}
+  geigen
 )
