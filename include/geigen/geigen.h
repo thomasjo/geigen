@@ -6,6 +6,6 @@
 namespace geigen {
 
 std::tuple<std::vector<float>, std::vector<float>>
-compute_eigensystem(const std::vector<float>& matrix, const size_t n);
+compute_eigensystem(const std::vector<float>& matrix, const int n);
 
 }
