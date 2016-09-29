@@ -9,7 +9,7 @@
 #include <cudalicious/core.hpp>
 #include <cudalicious/solver.hpp>
 
-constexpr auto K_MAX = 50;
+constexpr auto MAX_ITER = 50;
 
 template<typename T>
 void print_matrix(const std::vector<T>& matrix, const int n)
@@ -45,15 +45,12 @@ float get_reflector_coefficient(const float* source, const float* tau, const int
 __global__
 void construct_q_matrix(float* q, const float* source, const float* tau, const int n)
 {
-  // Matrix is stored in column-major order, so x gives the row index, and y gives the column index.
+  // Remember that `x` gives the row index, and `y` gives the column index.
   const auto row = blockDim.x * blockIdx.x + threadIdx.x;
   const auto col = blockDim.y * blockIdx.y + threadIdx.y;
   const auto idx = col * n + row;
 
-  // if (idx >= n * n) return;
   if (row >= n || col >= n) return;
-
-  // printf("(% u, % u) -- % u\n", row, col, idx);
 
   for (auto k = 0; k < n; ++k) {
     auto inner_product = 0.0f;
@@ -61,7 +58,6 @@ void construct_q_matrix(float* q, const float* source, const float* tau, const i
     for (auto i = 0; i < n; ++i) {
       const auto row_coefficient = q[i * n + row];
       const auto col_coefficient = get_reflector_coefficient(source, tau, n, k, i, col);
-      // const auto col_coefficient = 0.f;
 
       inner_product += row_coefficient * col_coefficient;
     }
@@ -70,8 +66,7 @@ void construct_q_matrix(float* q, const float* source, const float* tau, const i
   }
 }
 
-std::tuple<std::vector<float>, std::vector<float>>
-geigen::compute_eigensystem(const std::vector<float>& matrix, const int n)
+geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>& matrix, const int n)
 {
   size_t free_mem;
   size_t total_mem;
@@ -90,60 +85,37 @@ geigen::compute_eigensystem(const std::vector<float>& matrix, const int n)
   }
   assert(identity.size() == matrix.size());
 
-  // std::cout << "-- " << identity[0] << "\n";
-  // std::cout << "-- " << identity[1 * n + 1] << "\n";
-  // std::cout << "-- " << identity[2 * n + 2] << "\n";
-  // std::cout << "-- " << identity[2 * n + 3] << "\n";
-
   // Create handles.
-  // std::cout << "Creating handles...\n";
   auto solver_handle = cuda::solver::initialize();
   auto blas_handle = cuda::blas::initialize();
 
   // Allocate device memory.
-  // std::cout << "Copying matrix to device...\n";
   auto dev_matrix = cuda::copy_to_device(matrix);
 
   // Determine workspace size.
-  // std::cout << "Determining workspace size...\n";
   auto workspace_size = cuda::solver::geqrf_buffer_size(solver_handle, n, n, dev_matrix, n);
-  // std::cout << "Workspace size: " << workspace_size << "\n";
 
-  // std::cout << "Preparing device memory...\n";
   auto dev_qr = cuda::allocate<float>(matrix.size());
   auto dev_tau = cuda::allocate<float>(n);
   auto dev_workspace = cuda::allocate<float>(workspace_size);
   auto dev_info = cuda::allocate<int>(1);
 
-  // auto dev_q = cuda::copy_to_device(identity);
-  auto dev_q = cuda::allocate<float>(matrix.size());
+  auto dev_q = cuda::copy_to_device(identity);
   auto dev_eigvecs = cuda::copy_on_device(dev_q, matrix.size());
 
-  // std::cout << "Copying matrix on device...\n";
   cuda::copy_on_device(dev_qr, dev_matrix, matrix.size());
 
-  for (auto k = 0; k < K_MAX; ++k) {
+  for (auto iter = 0; iter < MAX_ITER; ++iter) {
     // Compute QR factorization.
-    // std::cout << "Computing QR factorization...\n";
     cuda::solver::geqrf(solver_handle, n, n, dev_qr, n, dev_tau, dev_workspace, workspace_size, dev_info);
 
-    // std::cout << "Copying identity matrix to device...\n" << std::flush;
     cuda::copy_to_device(dev_q, identity.data(), identity.size());
 
-    // std::cout << "Launching kernel...\n" << std::flush;
-
     const dim3 threads_per_block(16, 16);
-    // const dim3 threads_per_block(32, 32);
     const dim3 blocks(
       std::ceil(n / threads_per_block.x) + (((n % threads_per_block.x) == 0 ? 0 : 1)),
       std::ceil(n / threads_per_block.y) + (((n % threads_per_block.y) == 0 ? 0 : 1))
     );
-
-    // std::cout << n * n << "\n";
-    // const int blocks(10);
-    // const int threads_per_block(1);
-    // std::cout << "Hmm...\n" << std::flush;
-    // cuda::device_sync();
 
     construct_q_matrix<<<blocks, threads_per_block>>>(dev_q, dev_qr, dev_tau, n);
     cuda::device_sync();

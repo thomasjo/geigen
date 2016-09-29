@@ -5,7 +5,9 @@
 
 namespace geigen {
 
-std::tuple<std::vector<float>, std::vector<float>>
-compute_eigensystem(const std::vector<float>& matrix, const int n);
+template<typename T>
+using eigensystem = std::tuple<std::vector<T>, std::vector<T>>;
+
+eigensystem<float> compute_eigensystem(const std::vector<float>& matrix, const int n);
 
 }
