@@ -43,7 +43,7 @@ float get_reflector_coefficient(const float* source, const float* tau, const int
 }
 
 __global__
-void construct_q_matrix(float* q, const float* source, const float* tau, const int n)
+void construct_q_matrix(float* temp, const float* q, const float* source, const float* tau, const int n, const int k)
 {
   // Remember that `x` gives the row index, and `y` gives the column index.
   const auto row = blockDim.x * blockIdx.x + threadIdx.x;
@@ -52,7 +52,7 @@ void construct_q_matrix(float* q, const float* source, const float* tau, const i
 
   if (row >= n || col >= n) return;
 
-  for (auto k = 0; k < n; ++k) {
+  // for (auto k = 0; k < n; ++k) {
     auto inner_product = 0.0f;
 
     for (auto i = 0; i < n; ++i) {
@@ -62,8 +62,8 @@ void construct_q_matrix(float* q, const float* source, const float* tau, const i
       inner_product += row_coefficient * col_coefficient;
     }
 
-    q[idx] = inner_product;
-  }
+    temp[idx] = inner_product;
+  // }
 }
 
 geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>& matrix, const int n)
@@ -103,6 +103,8 @@ geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>&
   auto dev_q = cuda::copy_to_device(identity);
   auto dev_eigvecs = cuda::copy_on_device(dev_q, matrix.size());
 
+  auto dev_temp = cuda::allocate<float>(matrix.size());
+
   cuda::copy_on_device(dev_qr, dev_matrix, matrix.size());
 
   for (auto iter = 0; iter < MAX_ITER; ++iter) {
@@ -111,14 +113,17 @@ geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>&
 
     cuda::copy_to_device(dev_q, identity.data(), identity.size());
 
-    const dim3 threads_per_block(16, 16);
+    const dim3 threads_per_block(32, 32);
     const dim3 blocks(
       std::ceil(n / threads_per_block.x) + (((n % threads_per_block.x) == 0 ? 0 : 1)),
       std::ceil(n / threads_per_block.y) + (((n % threads_per_block.y) == 0 ? 0 : 1))
     );
 
-    construct_q_matrix<<<blocks, threads_per_block>>>(dev_q, dev_qr, dev_tau, n);
-    cuda::device_sync();
+    for (auto k = 0; k < n; ++k) {
+      construct_q_matrix<<<blocks, threads_per_block>>>(dev_temp, dev_q, dev_qr, dev_tau, n, k);
+      // cuda::device_sync();
+      cuda::copy_on_device(dev_q, dev_temp, matrix.size());
+    }
 
     constexpr auto alpha = 1.0f;
     constexpr auto beta = 0.0f;
@@ -147,6 +152,8 @@ geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>&
   cuda::free(dev_tau);
   cuda::free(dev_qr);
   cuda::free(dev_matrix);
+
+  cuda::free(dev_temp);
 
   cuda::blas::release(blas_handle);
   cuda::solver::release(solver_handle);
