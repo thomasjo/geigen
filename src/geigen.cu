@@ -9,6 +9,8 @@
 #include <cudalicious/core.hpp>
 #include <cudalicious/solver.hpp>
 
+#include <magma_v2.h>
+
 constexpr auto MAX_ITER = 50;
 
 template<typename T>
@@ -89,11 +91,16 @@ geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>&
   auto solver_handle = cuda::solver::initialize();
   auto blas_handle = cuda::blas::initialize();
 
+  // Initialize MAGMA.
+  magma_init();
+
   // Allocate device memory.
   auto dev_matrix = cuda::copy_to_device(matrix);
 
   // Determine workspace size.
-  auto workspace_size = cuda::solver::geqrf_buffer_size(solver_handle, n, n, dev_matrix, n);
+  auto nb = magma_get_sgeqrf_nb(n, n);
+  auto workspace_size = (2 * n + std::ceil(n / 32) * 32) * nb;
+  // auto workspace_size = cuda::solver::geqrf_buffer_size(solver_handle, n, n, dev_matrix, n);
 
   auto dev_qr = cuda::allocate<float>(matrix.size());
   auto dev_tau = cuda::allocate<float>(n);
@@ -107,35 +114,55 @@ geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>&
 
   cuda::copy_on_device(dev_qr, dev_matrix, matrix.size());
 
+  std::vector<float> tau(n);
+
+  // auto nb = magma_get_sgeqrf_nb(n, n);
+  // auto t_size = (2 * n + std::ceil(n / 32) * 32) * nb;
+  std::cout << "workspace_size: " << workspace_size << "\n";
+  // std::cout << "t_size: " << t_size << "\n";
+  // auto dev_wo
+
+  magma_int_t info = 0;
+
   for (auto iter = 0; iter < MAX_ITER; ++iter) {
     // Compute QR factorization.
-    cuda::solver::geqrf(solver_handle, n, n, dev_qr, n, dev_tau, dev_workspace, workspace_size, dev_info);
+    // std::cout << "Computing QR factorization...\n";
+    // cuda::solver::geqrf(solver_handle, n, n, dev_qr, n, dev_tau, dev_workspace, workspace_size, dev_info);
+    magma_sgeqrf_gpu(n, n, dev_qr, n, tau.data(), dev_workspace, &info);
 
-    cuda::copy_to_device(dev_q, identity.data(), identity.size());
+    // cuda::copy_to_device(dev_q, identity.data(), identity.size());
+    //
+    // const dim3 threads_per_block(32, 32);
+    // const dim3 blocks(
+    //   std::ceil(n / threads_per_block.x) + (((n % threads_per_block.x) == 0 ? 0 : 1)),
+    //   std::ceil(n / threads_per_block.y) + (((n % threads_per_block.y) == 0 ? 0 : 1))
+    // );
+    //
+    // for (auto k = 0; k < n; ++k) {
+    //   construct_q_matrix<<<blocks, threads_per_block>>>(dev_temp, dev_q, dev_qr, dev_tau, n, k);
+    //   // cuda::device_sync();
+    //   cuda::copy_on_device(dev_q, dev_temp, matrix.size());
+    // }
 
-    const dim3 threads_per_block(32, 32);
-    const dim3 blocks(
-      std::ceil(n / threads_per_block.x) + (((n % threads_per_block.x) == 0 ? 0 : 1)),
-      std::ceil(n / threads_per_block.y) + (((n % threads_per_block.y) == 0 ? 0 : 1))
-    );
+    // Construct Q matrix from Householder reflectors.
+    // std::cout << "Copying dev_qr into dev_q...\n";
+    // cuda::copy_on_device(dev_q, dev_qr, matrix.size());
+    // std::cout << "Computing Q matrix...\n";
+    magma_sorgqr_gpu(n, n, n, dev_qr, n, tau.data(), dev_workspace, nb, &info);
 
-    for (auto k = 0; k < n; ++k) {
-      construct_q_matrix<<<blocks, threads_per_block>>>(dev_temp, dev_q, dev_qr, dev_tau, n, k);
-      // cuda::device_sync();
-      cuda::copy_on_device(dev_q, dev_temp, matrix.size());
-    }
+    // magma_sprint_gpu(n, n, dev_qr, n);
 
     constexpr auto alpha = 1.0f;
     constexpr auto beta = 0.0f;
 
     // Compute A_k = Q_k^T * A_(k-1) * Q_k --> A_k converges to eigenvalues of A_0.
-    cuda::blas::gemm(blas_handle, n, n, n, alpha, dev_q, n, dev_matrix, n, beta, dev_qr, n, true);
-    cuda::blas::gemm(blas_handle, n, n, n, alpha, dev_qr, n, dev_q, n, beta, dev_matrix, n);
+    cuda::blas::gemm(blas_handle, n, n, n, alpha, dev_qr, n, dev_matrix, n, beta, dev_temp, n, true);
+    cuda::blas::gemm(blas_handle, n, n, n, alpha, dev_temp, n, dev_qr, n, beta, dev_matrix, n);
 
     // Compute L_k = Q_k * Q_(k-1)..Q_0 --> L_k converges to eigenvectors of A_0.
-    cuda::blas::gemm(blas_handle, n, n, n, alpha, dev_eigvecs, n, dev_q, n, beta, dev_qr, n);
+    cuda::blas::gemm(blas_handle, n, n, n, alpha, dev_eigvecs, n, dev_qr, n, beta, dev_temp, n);
 
-    cuda::copy_on_device(dev_eigvecs, dev_qr, matrix.size());
+    cuda::copy_on_device(dev_eigvecs, dev_temp, matrix.size());
     cuda::copy_on_device(dev_qr, dev_matrix, matrix.size());
   }
 
@@ -144,6 +171,8 @@ geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>&
 
   std::vector<float> eigvals(n * n);
   cuda::copy_to_host(eigvals, dev_matrix);
+
+  magma_finalize();
 
   cuda::free(dev_eigvecs);
   cuda::free(dev_q);
