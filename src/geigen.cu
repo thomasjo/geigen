@@ -1,6 +1,7 @@
 #include "geigen/geigen.h"
 
 #include <cassert>
+#include <complex>
 #include <iomanip>
 #include <iostream>
 #include <vector>
@@ -70,6 +71,8 @@ void construct_q_matrix(float* temp, const float* q, const float* source, const 
 
 geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>& matrix, const int n)
 {
+  assert(matrix.size() == static_cast<size_t>(n * n));
+
   size_t free_mem;
   size_t total_mem;
   cuda::check_error(cudaMemGetInfo(&free_mem, &total_mem));
@@ -77,116 +80,182 @@ geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>&
   std::cout << " Free memory: " << free_mem << "\n";
   std::cout << "Total memory: " << total_mem << "\n";
 
-  cuda::device_sync();
-
-  assert(matrix.size() == static_cast<size_t>(n * n));
-
-  std::vector<float> identity(n * n, 0);
-  for (auto i = 0; i < n; ++i) {
-    identity[i * n + i] = 1.f;
-  }
-  assert(identity.size() == matrix.size());
-
-  // Create handles.
-  auto solver_handle = cuda::solver::initialize();
-  auto blas_handle = cuda::blas::initialize();
-
   // Initialize MAGMA.
   magma_init();
-
-  // Allocate device memory.
-  auto dev_matrix = cuda::copy_to_device(matrix);
-
-  // Determine workspace size.
-  auto nb = magma_get_sgeqrf_nb(n, n);
-  auto workspace_size = (2 * n + std::ceil(n / 32) * 32) * nb;
-  // auto workspace_size = cuda::solver::geqrf_buffer_size(solver_handle, n, n, dev_matrix, n);
-
-  auto dev_qr = cuda::allocate<float>(matrix.size());
-  auto dev_tau = cuda::allocate<float>(n);
-  auto dev_workspace = cuda::allocate<float>(workspace_size);
-  auto dev_info = cuda::allocate<int>(1);
-
-  auto dev_q = cuda::copy_to_device(identity);
-  auto dev_eigvecs = cuda::copy_on_device(dev_q, matrix.size());
-
-  auto dev_temp = cuda::allocate<float>(matrix.size());
-
-  cuda::copy_on_device(dev_qr, dev_matrix, matrix.size());
-
-  std::vector<float> tau(n);
-
-  // auto nb = magma_get_sgeqrf_nb(n, n);
-  // auto t_size = (2 * n + std::ceil(n / 32) * 32) * nb;
-  std::cout << "workspace_size: " << workspace_size << "\n";
-  // std::cout << "t_size: " << t_size << "\n";
-  // auto dev_wo
-
   magma_int_t info = 0;
 
-  for (auto iter = 0; iter < MAX_ITER; ++iter) {
-    // Compute QR factorization.
-    // std::cout << "Computing QR factorization...\n";
-    // cuda::solver::geqrf(solver_handle, n, n, dev_qr, n, dev_tau, dev_workspace, workspace_size, dev_info);
-    magma_sgeqrf_gpu(n, n, dev_qr, n, tau.data(), dev_workspace, &info);
+  // Determine block size.
+  // auto nb = magma_get_sgeqrf_nb(n, n);
+  auto nb = magma_get_chetrd_nb(n);
+  std::cout << "nb: " << nb << "\n";
 
-    // cuda::copy_to_device(dev_q, identity.data(), identity.size());
-    //
-    // const dim3 threads_per_block(32, 32);
-    // const dim3 blocks(
-    //   std::ceil(n / threads_per_block.x) + (((n % threads_per_block.x) == 0 ? 0 : 1)),
-    //   std::ceil(n / threads_per_block.y) + (((n % threads_per_block.y) == 0 ? 0 : 1))
-    // );
-    //
-    // for (auto k = 0; k < n; ++k) {
-    //   construct_q_matrix<<<blocks, threads_per_block>>>(dev_temp, dev_q, dev_qr, dev_tau, n, k);
-    //   // cuda::device_sync();
-    //   cuda::copy_on_device(dev_q, dev_temp, matrix.size());
-    // }
-
-    // Construct Q matrix from Householder reflectors.
-    // std::cout << "Copying dev_qr into dev_q...\n";
-    // cuda::copy_on_device(dev_q, dev_qr, matrix.size());
-    // std::cout << "Computing Q matrix...\n";
-    magma_sorgqr_gpu(n, n, n, dev_qr, n, tau.data(), dev_workspace, nb, &info);
-
-    // magma_sprint_gpu(n, n, dev_qr, n);
-
-    constexpr auto alpha = 1.0f;
-    constexpr auto beta = 0.0f;
-
-    // Compute A_k = Q_k^T * A_(k-1) * Q_k --> A_k converges to eigenvalues of A_0.
-    cuda::blas::gemm(blas_handle, n, n, n, alpha, dev_qr, n, dev_matrix, n, beta, dev_temp, n, true);
-    cuda::blas::gemm(blas_handle, n, n, n, alpha, dev_temp, n, dev_qr, n, beta, dev_matrix, n);
-
-    // Compute L_k = Q_k * Q_(k-1)..Q_0 --> L_k converges to eigenvectors of A_0.
-    cuda::blas::gemm(blas_handle, n, n, n, alpha, dev_eigvecs, n, dev_qr, n, beta, dev_temp, n);
-
-    cuda::copy_on_device(dev_eigvecs, dev_temp, matrix.size());
-    cuda::copy_on_device(dev_qr, dev_matrix, matrix.size());
+  std::vector<magmaFloatComplex> cmatrix(n * n, MAGMA_C_MAKE(0, 0));
+  // for (auto num : matrix) {
+  //   // std::cout << MAGMA_C_MAKE(num, 0).x << "\n";
+  //   cmatrix.push_back(MAGMA_C_MAKE(num, 0));
+  // }
+  for (auto col = 0; col < n; ++col) {
+    for (auto row = 0; row < n; ++row) {
+      if (col < row) continue;
+      const auto idx = row * n + col;
+      cmatrix[idx] = MAGMA_C_MAKE(matrix[idx], 0);
+    }
   }
 
-  std::vector<float> eigvecs(n * n);
-  cuda::copy_to_host(eigvecs, dev_eigvecs);
+  std::cout << "size: " << cmatrix.size() << "\n";
+  std::cout << cmatrix[0].x << "\n";
 
-  std::vector<float> eigvals(n * n);
-  cuda::copy_to_host(eigvals, dev_matrix);
+  std::vector<float> eigvals(n);
+  std::vector<magmaFloatComplex> work_eigvals((nb + 1) * n);
+  std::vector<magmaFloatComplex> work_matrix(n * n);
+  std::vector<float> work_real(1 + 5*n + 2*n*n);
+  std::vector<int> work_int(3 + 5*n);
+  std::vector<int> fail(n);
+
+  int num_eigvals;
+
+  // Allocate device memory.
+  magmaFloatComplex_ptr dev_matrix;
+  magma_cmalloc(&dev_matrix, n * n);
+  magmaFloatComplex_ptr dev_eigvecs;
+  magma_cmalloc(&dev_eigvecs, n * n);
+
+  // Copy from CPU to GPU...
+  magma_device_t device;
+  magma_getdevice(&device);
+  magma_queue_t queue;
+  magma_queue_create(device, &queue);
+  magma_csetmatrix(n, n, cmatrix.data(), n, dev_matrix, n, queue);
+
+  magma_sprint(    5, 5, matrix.data(),  n);
+  magma_cprint(    5, 5, cmatrix.data(), n);
+  magma_cprint_gpu(5, 5, dev_matrix,     n);
+
+  // magmaFloatComplex lwork;
+  // float lrwork;
+  // int liwork;
+  //
+  // magma_cheevdx_gpu(
+  //   MagmaVec,  // jobs [in]
+  //   MagmaRangeAll,  // range [in]
+  //   MagmaLower,  // uplo [in]
+  //   n,  // n [in]
+  //   dev_matrix,  // dA [in,out]
+  //   n,  // ldda [in]
+  //   0,  // vl [in]
+  //   1000,  // vu [in]
+  //   0,  // il [in]
+  //   n - 1,  // iu [in]
+  //   &num_eigvals,  // m [out]
+  //   eigvals.data(),  // w [out]
+  //   work_matrix.data(),  // wA [out]
+  //   n,  // ldwa [in]
+  //   &lwork,  // work [out]
+  //   -1,  // lwork [in]
+  //   &lrwork,  // rwork [out]
+  //   -1, // lrwork [in]
+  //   &liwork,  // iwork [out]
+  //   -1,  // liwork [out]
+  //   &info  // info [out]
+  // );
+  //
+  // std::cout << "lwork: " << lwork.x << "\n";
+  // std::cout << "lrwork: " << lrwork << "\n";
+  // std::cout << "liwork: " << liwork << "\n";
+
+  magma_cheevdx(
+    MagmaVec,  // jobs [in]
+    MagmaRangeAll,  // range [in]
+    MagmaLower,  // uplo [in]
+    n,  // n [in]
+    dev_matrix,  // dA [in,out]
+    n,  // ldda [in]
+    0,  // vl [in]
+    1000,  // vu [in]
+    0,  // il [in]
+    n - 1,  // iu [in]
+    &num_eigvals,  // m [out]
+    eigvals.data(),  // w [out]
+    work_matrix.data(),  // wA [out]
+    n,  // ldwa [in]
+    work_eigvals.data(),  // work [out]
+    work_eigvals.size(),  // lwork [in]
+    work_real.data(),  // rwork [out]
+    work_real.size(), // lrwork [in]
+    work_int.data(),  // iwork [out]
+    work_int.size(),  // liwork [out]
+    &info  // info [out]
+  );
+
+  // magma_cheevdx_gpu(
+  //   MagmaVec,  // jobs [in]
+  //   MagmaRangeAll,  // range [in]
+  //   MagmaLower,  // uplo [in]
+  //   n,  // n [in]
+  //   dev_matrix,  // dA [in,out]
+  //   n,  // ldda [in]
+  //   0,  // vl [in]
+  //   1000,  // vu [in]
+  //   0,  // il [in]
+  //   n - 1,  // iu [in]
+  //   &num_eigvals,  // m [out]
+  //   eigvals.data(),  // w [out]
+  //   work_matrix.data(),  // wA [out]
+  //   n,  // ldwa [in]
+  //   work_eigvals.data(),  // work [out]
+  //   work_eigvals.size(),  // lwork [in]
+  //   work_real.data(),  // rwork [out]
+  //   work_real.size(), // lrwork [in]
+  //   work_int.data(),  // iwork [out]
+  //   work_int.size(),  // liwork [out]
+  //   &info  // info [out]
+  // );
+
+  // magma_cheevx_gpu(
+  //   MagmaVec,  // jobs [in]
+  //   MagmaRangeAll,  // range [in]
+  //   MagmaLower,  // uplo [in]
+  //   n,  // n [in]
+  //   dev_matrix,  // dA [in,out]
+  //   n,  // ldda [in]
+  //   0,  // vl [in]
+  //   0,  // vu [in]
+  //   0,  // il [in]
+  //   0,  // iu [in]
+  //   0.01,  // abstol [in]
+  //   &num_eigvals,  // m [out]
+  //   eigvals.data(),  // w [out]
+  //   dev_eigvecs,  // dZ [out]
+  //   n,  // lddz [in]
+  //   work_matrix.data(),  // wA [out]
+  //   n,  // ldwa [in]
+  //   work_eigvecs.data(),  // wZ [in]
+  //   n,  // ldwz [in]
+  //   work_eigvals.data(),  // work [out]
+  //   work_eigvals.size(),  // lwork [in]
+  //   work_real.data(),  // rwork [in]
+  //   work_int.data(),  // iwork [in]
+  //   fail.data(),  // ifail [out]
+  //   &info  // info [out]
+  // );
+
+  std::cout << "num_eigvals: " << num_eigvals << "\n";
+
+  std::vector<float> eigvecs(n * n, 0);
+
+  std::cout << "failed indices: \n";
+  for (const auto idx : fail) {
+    std::cout << idx << ", ";
+  }
+  std::cout << "\n";
+
+  magma_queue_destroy(queue);
+
+  // Release device memory.
+  magma_free(dev_eigvecs);
+  magma_free(dev_matrix);
 
   magma_finalize();
-
-  cuda::free(dev_eigvecs);
-  cuda::free(dev_q);
-  cuda::free(dev_info);
-  cuda::free(dev_workspace);
-  cuda::free(dev_tau);
-  cuda::free(dev_qr);
-  cuda::free(dev_matrix);
-
-  cuda::free(dev_temp);
-
-  cuda::blas::release(blas_handle);
-  cuda::solver::release(solver_handle);
-
   cuda::device_reset();
 
   return std::make_tuple(eigvals, eigvecs);
