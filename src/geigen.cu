@@ -89,28 +89,30 @@ geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>&
   auto nb = magma_get_chetrd_nb(n);
   std::cout << "nb: " << nb << "\n";
 
-  std::vector<magmaFloatComplex> cmatrix(n * n, MAGMA_C_MAKE(0, 0));
-  // for (auto num : matrix) {
-  //   // std::cout << MAGMA_C_MAKE(num, 0).x << "\n";
-  //   cmatrix.push_back(MAGMA_C_MAKE(num, 0));
-  // }
-  for (auto col = 0; col < n; ++col) {
-    for (auto row = 0; row < n; ++row) {
-      if (col < row) continue;
-      const auto idx = row * n + col;
-      cmatrix[idx] = MAGMA_C_MAKE(matrix[idx], 0);
-    }
+  std::vector<magmaFloatComplex> cmatrix;
+  for (auto num : matrix) {
+    // std::cout << MAGMA_C_MAKE(num, 0).x << "\n";
+    cmatrix.push_back(MAGMA_C_MAKE(num, 0));
   }
+
+  // std::vector<magmaFloatComplex> cmatrix(n * n);
+  // for (auto col = 0; col < n; ++col) {
+  //   for (auto row = 0; row < n; ++row) {
+  //     if (col < row) continue;
+  //     const auto idx = row * n + col;
+  //     cmatrix[idx] = MAGMA_C_MAKE(matrix[idx], 0);
+  //   }
+  // }
 
   std::cout << "size: " << cmatrix.size() << "\n";
   std::cout << cmatrix[0].x << "\n";
 
   std::vector<float> eigvals(n);
-  std::vector<magmaFloatComplex> work_eigvals((nb + 1) * n);
-  std::vector<magmaFloatComplex> work_matrix(n * n);
-  std::vector<float> work_real(1 + 5*n + 2*n*n);
-  std::vector<int> work_int(3 + 5*n);
-  std::vector<int> fail(n);
+  // std::vector<magmaFloatComplex> work_matrix(n * n);
+  // std::vector<magmaFloatComplex> work_eigvals((nb + 1) * n);
+  // std::vector<float> work_real(1 + 5*n + 2*n*n);
+  // std::vector<int> work_int(3 + 5*n);
+  // std::vector<int> fail(n);
 
   int num_eigvals;
 
@@ -127,29 +129,27 @@ geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>&
   magma_queue_create(device, &queue);
   magma_csetmatrix(n, n, cmatrix.data(), n, dev_matrix, n, queue);
 
-  magma_sprint(    5, 5, matrix.data(),  n);
-  magma_cprint(    5, 5, cmatrix.data(), n);
-  magma_cprint_gpu(5, 5, dev_matrix,     n);
+  magma_sprint(    4, 4, matrix.data(),  n);
+  magma_cprint(    4, 4, cmatrix.data(), n);
+  magma_cprint_gpu(4, 4, dev_matrix,     n);
 
   // magmaFloatComplex lwork;
   // float lrwork;
   // int liwork;
-  //
-  // magma_cheevdx_gpu(
+
+  // magma_cheevdx(
   //   MagmaVec,  // jobs [in]
   //   MagmaRangeAll,  // range [in]
   //   MagmaLower,  // uplo [in]
   //   n,  // n [in]
-  //   dev_matrix,  // dA [in,out]
+  //   cmatrix.data(),  // dA [in,out]
   //   n,  // ldda [in]
   //   0,  // vl [in]
-  //   1000,  // vu [in]
+  //   10,  // vu [in]
   //   0,  // il [in]
   //   n - 1,  // iu [in]
   //   &num_eigvals,  // m [out]
   //   eigvals.data(),  // w [out]
-  //   work_matrix.data(),  // wA [out]
-  //   n,  // ldwa [in]
   //   &lwork,  // work [out]
   //   -1,  // lwork [in]
   //   &lrwork,  // rwork [out]
@@ -158,34 +158,93 @@ geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>&
   //   -1,  // liwork [out]
   //   &info  // info [out]
   // );
-  //
+
   // std::cout << "lwork: " << lwork.x << "\n";
   // std::cout << "lrwork: " << lrwork << "\n";
   // std::cout << "liwork: " << liwork << "\n";
 
-  magma_cheevdx(
-    MagmaVec,  // jobs [in]
-    MagmaRangeAll,  // range [in]
-    MagmaLower,  // uplo [in]
-    n,  // n [in]
-    dev_matrix,  // dA [in,out]
-    n,  // ldda [in]
-    0,  // vl [in]
-    1000,  // vu [in]
-    0,  // il [in]
-    n - 1,  // iu [in]
-    &num_eigvals,  // m [out]
-    eigvals.data(),  // w [out]
-    work_matrix.data(),  // wA [out]
-    n,  // ldwa [in]
-    work_eigvals.data(),  // work [out]
-    work_eigvals.size(),  // lwork [in]
-    work_real.data(),  // rwork [out]
-    work_real.size(), // lrwork [in]
-    work_int.data(),  // iwork [out]
-    work_int.size(),  // liwork [out]
-    &info  // info [out]
+  std::vector<magmaFloatComplex> work_eigvecs(n * n);
+  // std::vector<magmaFloatComplex> work(2*n - 1);
+  std::vector<float> work_real(7*n);
+  std::vector<int> work_int(5*n);
+  std::vector<int> fail(n);
+
+  // std::cout << "work_eigvals.size(): " << work_eigvals.size() << "\n";
+
+  magmaFloatComplex lwork;
+  magma_cheevx(
+    MagmaNoVec,             // jobs [in]
+    MagmaRangeAll,        // range [in]
+    MagmaLower,           // uplo [in]
+    n,                    // n [in]
+    cmatrix.data(),       // A [in,out]
+    n,                    // lda [in]
+    0,                    // vl [in]
+    0,                    // vu [in]
+    0,                    // il [in]
+    0,                    // iu [in]
+    0.0000001,            // abstol [in]
+    &num_eigvals,         // m [out]
+    eigvals.data(),       // w [out]
+    work_eigvecs.data(),  // Z [out]
+    n,                    // ldz [in]
+    &lwork,  // work [out]
+    -1,  // lwork [in]
+    work_real.data(),     // rwork [out]
+    work_int.data(),      // iwork [out]
+    fail.data(),          // ifail [out]
+    &info                 // info [out]
   );
+
+  // std::cout << work_eigvals[0].x << "\n";
+
+  std::vector<magmaFloatComplex> work(lwork.x);
+
+  magma_cheevx(
+    MagmaNoVec,             // jobs [in]
+    MagmaRangeAll,        // range [in]
+    MagmaLower,           // uplo [in]
+    n,                    // n [in]
+    cmatrix.data(),       // A [in,out]
+    n,                    // lda [in]
+    0,                    // vl [in]
+    0,                    // vu [in]
+    0,                    // il [in]
+    0,                    // iu [in]
+    0.0000001,            // abstol [in]
+    &num_eigvals,         // m [out]
+    eigvals.data(),       // w [out]
+    work_eigvecs.data(),  // Z [out]
+    n,                    // ldz [in]
+    work.data(),  // work [out]
+    work.size(),  // lwork [in]
+    work_real.data(),     // rwork [out]
+    work_int.data(),      // iwork [out]
+    fail.data(),          // ifail [out]
+    &info                 // info [out]
+  );
+
+  // magma_cheevdx(
+  //   MagmaVec,  // jobs [in]
+  //   MagmaRangeAll,  // range [in]
+  //   MagmaLower,  // uplo [in]
+  //   n,  // n [in]
+  //   cmatrix.data(),  // dA [in,out]
+  //   n,  // ldda [in]
+  //   0,  // vl [in]
+  //   0,  // vu [in]
+  //   0,  // il [in]
+  //   0,  // iu [in]
+  //   &num_eigvals,  // m [out]
+  //   eigvals.data(),  // w [out]
+  //   work_eigvals.data(),  // work [out]
+  //   work_eigvals.size(),  // lwork [in]
+  //   work_real.data(),  // rwork [out]
+  //   work_real.size(), // lrwork [in]
+  //   work_int.data(),  // iwork [out]
+  //   work_int.size(),  // liwork [out]
+  //   &info  // info [out]
+  // );
 
   // magma_cheevdx_gpu(
   //   MagmaVec,  // jobs [in]
@@ -243,11 +302,11 @@ geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>&
 
   std::vector<float> eigvecs(n * n, 0);
 
-  std::cout << "failed indices: \n";
-  for (const auto idx : fail) {
-    std::cout << idx << ", ";
-  }
-  std::cout << "\n";
+  // std::cout << "failed indices: \n";
+  // for (const auto idx : fail) {
+  //   std::cout << idx << ", ";
+  // }
+  // std::cout << "\n";
 
   magma_queue_destroy(queue);
 
