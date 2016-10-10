@@ -220,6 +220,8 @@ geigen::eigensystem<float> geigen::compute_eigensystem_magma(const std::vector<f
   magmaFloatComplex_ptr dev_eigvecs;
   magma_cmalloc(&dev_eigvecs, n * n);
 
+  constexpr auto abstol = 1e-8;
+
   // Figure out what the optimal workspace size is.
   magmaFloatComplex lwork;
   magma_cheevx_gpu(
@@ -233,7 +235,7 @@ geigen::eigensystem<float> geigen::compute_eigensystem_magma(const std::vector<f
     0,                    // vu [in]
     0,                    // il [in]
     0,                    // iu [in]
-    10e-10,               // abstol [in]
+    abstol,               // abstol [in]
     &num_eigvals,         // m [out]
     eigvals.data(),       // w [out]
     dev_eigvecs,          // dZ [out]
@@ -265,7 +267,7 @@ geigen::eigensystem<float> geigen::compute_eigensystem_magma(const std::vector<f
     0,                    // vu [in]
     0,                    // il [in]
     0,                    // iu [in]
-    10e-10,               // abstol [in]
+    abstol,               // abstol [in]
     &num_eigvals,         // m [out]
     eigvals.data(),       // w [out]
     dev_eigvecs,          // dZ [out]
