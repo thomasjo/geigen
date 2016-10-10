@@ -32,13 +32,13 @@ int main()
   std::cout << "Input matrix:\n";
   print_matrix(matrix, n);
 
-  std::vector<float> eigvecs(n * n);
-  std::vector<float> eigvals(n * n);
-  std::tie(eigvecs, eigvals) = geigen::compute_eigensystem(matrix, n);
+  const auto eigensystem = geigen::compute_eigensystem(matrix, n);
 
   std::cout << "\nEigenvalue matrix:\n";
-  print_matrix(eigvals, n);
+  for (const auto val : eigensystem.values) {
+    std::cout << val << "\n";
+  }
 
   std::cout<< "\nEigenvector matrix:\n";
-  print_matrix(eigvecs, n);
+  print_matrix(eigensystem.vectors, n);
 }

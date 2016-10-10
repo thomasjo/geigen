@@ -65,28 +65,28 @@ void construct_q_matrix(float* temp, const float* q, const float* source, const 
       inner_product += row_coefficient * col_coefficient;
     }
 
+    // __syncthreads();
+
     temp[idx] = inner_product;
   // }
 }
 
-geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>& matrix, const int n)
+geigen::eigensystem<float> geigen::compute_eigensystem_magma(const std::vector<float>& matrix, const int n)
 {
   assert(matrix.size() == static_cast<size_t>(n * n));
 
+#ifdef DEBUG
   size_t free_mem;
   size_t total_mem;
   cuda::check_error(cudaMemGetInfo(&free_mem, &total_mem));
 
   std::cout << " Free memory: " << free_mem << "\n";
   std::cout << "Total memory: " << total_mem << "\n";
+#endif
 
   // Initialize MAGMA.
   magma_init();
   magma_int_t info = 0;
-
-  // Determine block size.
-  auto nb = magma_get_chetrd_nb(n);
-  std::cout << "nb: " << nb << "\n";
 
   std::vector<magmaFloatComplex> cmatrix;
   for (auto num : matrix) {
@@ -96,14 +96,9 @@ geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>&
   std::cout << "size: " << cmatrix.size() << "\n";
   std::cout << cmatrix[0].x << "\n";
 
-  std::vector<float> eigvals(n);
-  int num_eigvals;
-
   // Allocate device memory.
   magmaFloatComplex_ptr dev_matrix;
   magma_cmalloc(&dev_matrix, n * n);
-  magmaFloatComplex_ptr dev_eigvecs;
-  magma_cmalloc(&dev_eigvecs, n * n);
 
   // Copy from CPU to GPU...
   magma_device_t device;
@@ -116,15 +111,24 @@ geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>&
   magma_cprint(    4, 4, cmatrix.data(), n);
   magma_cprint_gpu(4, 4, dev_matrix,     n);
 
+  magma_queue_destroy(queue);
+
+  std::vector<float> eigvals(n);
+  int num_eigvals;
+
   std::vector<magmaFloatComplex> work_matrix(n * n);
   std::vector<magmaFloatComplex> work_eigvecs(n * n);
-  std::vector<float> work_real(7*n);
-  std::vector<int> work_int(5*n);
+  std::vector<float> work_real(7 * n);  // "Magic" dimension found in MAGMA docs.
+  std::vector<int> work_int(5 * n);  // "Magic" dimension found in MAGMA docs.
   std::vector<int> fail(n);
 
+  magmaFloatComplex_ptr dev_eigvecs;
+  magma_cmalloc(&dev_eigvecs, n * n);
+
+  // Figure out what the optimal workspace size is.
   magmaFloatComplex lwork;
   magma_cheevx_gpu(
-    MagmaNoVec,           // jobz [in]
+    MagmaVec,             // jobz [in]
     MagmaRangeAll,        // range [in]
     MagmaLower,           // uplo [in]
     n,                    // n [in]
@@ -151,9 +155,12 @@ geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>&
     &info                 // info [out]
   );
 
+  // Initialize workspace with the optimal size.
   std::vector<magmaFloatComplex> work(lwork.x);
+
+  // Execute the eigendecomposition.
   magma_cheevx_gpu(
-    MagmaNoVec,           // jobz [in]
+    MagmaVec,             // jobz [in]
     MagmaRangeAll,        // range [in]
     MagmaLower,           // uplo [in]
     n,                    // n [in]
@@ -180,12 +187,17 @@ geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>&
     &info                 // info [out]
   );
 
+#ifdef DEBUG
   std::cout << "num_eigvals: " << num_eigvals << "\n";
+#endif
 
-  // TODO(thomasjo): Grab the eigvectors from GPU memory (if requested).
-  std::vector<float> eigvecs(n * n, 0);
+  std::vector<magmaFloatComplex> temp_eigvecs(n * n);
+  cuda::copy_to_host(temp_eigvecs, dev_eigvecs);
 
-  magma_queue_destroy(queue);
+  std::vector<float> eigvecs;
+  for (auto v : temp_eigvecs) {
+    eigvecs.emplace_back(MAGMA_C_REAL(v));
+  }
 
   // Release device memory.
   magma_free(dev_eigvecs);
@@ -194,5 +206,5 @@ geigen::eigensystem<float> geigen::compute_eigensystem(const std::vector<float>&
   magma_finalize();
   cuda::device_reset();
 
-  return std::make_tuple(eigvals, eigvecs);
+  return geigen::eigensystem<float>(eigvals, eigvecs);
 }

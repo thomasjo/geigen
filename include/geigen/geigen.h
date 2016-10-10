@@ -6,8 +6,15 @@
 namespace geigen {
 
 template<typename T>
-using eigensystem = std::tuple<std::vector<T>, std::vector<T>>;
+struct eigensystem
+{
+  std::vector<T> values;
+  std::vector<T> vectors;
+
+  eigensystem(std::vector<T> values, std::vector<T> vectors) : values(values), vectors(vectors) {}
+};
 
 eigensystem<float> compute_eigensystem(const std::vector<float>& matrix, const int n);
+eigensystem<float> compute_eigensystem_magma(const std::vector<float>& matrix, const int n);
 
 }
