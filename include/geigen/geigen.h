@@ -14,7 +14,7 @@ struct eigensystem
   eigensystem(std::vector<T> values, std::vector<T> vectors) : values(values), vectors(vectors) {}
 };
 
-eigensystem<float> compute_eigensystem(const std::vector<float>& matrix, const int n);
-eigensystem<float> compute_eigensystem_magma(const std::vector<float>& matrix, const int n);
+eigensystem<float> compute_eigensystem(const std::vector<float>& matrix, const size_t n);
+eigensystem<float> compute_eigensystem_magma(const std::vector<float>& matrix, const size_t n);
 
 }
