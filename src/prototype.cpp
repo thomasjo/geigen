@@ -6,7 +6,7 @@
 
 #include "geigen/geigen.h"
 
-constexpr auto PRECISION = 6U;
+constexpr auto PRECISION = 7U;
 constexpr auto COLUMN_WIDTH = 12U;
 
 void print_header(const std::string& text, const size_t width)

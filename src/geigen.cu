@@ -13,6 +13,8 @@
 
 #include <magma_v2.h>
 
+constexpr auto PRECISION = 7U;
+constexpr auto COLUMN_WIDTH = 12U;
 constexpr auto MAX_ITER = 50;
 
 template<typename T>
@@ -21,7 +23,7 @@ void print_matrix(const std::vector<T>& matrix, const int n)
   for (auto i = 0; i < n; ++i) {
     for (auto j = 0; j < n; ++j) {
       const auto idx = j * n + i;
-      std::cout << std::setprecision(6) << std::setw(12) << matrix[idx];
+      std::cout << std::setprecision(PRECISION) << std::setw(COLUMN_WIDTH) << matrix[idx];
     }
     std::cout << "\n";
   }
