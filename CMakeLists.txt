@@ -1,11 +1,12 @@
 cmake_minimum_required(VERSION 3.2 FATAL_ERROR)
 
 project(Geigen CXX)
+option(BUILD_PROTOTYPE "Build the prototype demo" OFF)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror -Wall -Wextra -Wpedantic")
 
-# Support Xcode 7.3 side-by-side support...
+# Provide Xcode 7.3 side-by-side support...
 if(EXISTS "$ENV{XCODE73_DIR}")
   set(MACOS_SDK_DIR "$ENV{XCODE73_DIR}/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.11.sdk")
   include_directories(BEFORE SYSTEM
@@ -22,8 +23,8 @@ find_package(BLAS REQUIRED)
 # add_subdirectory(vendor/cudalicious)
 
 include_directories(
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/vendor/cudalicious/include
+  include
+  vendor/cudalicious/include
   /usr/local/magma/include
 )
 
@@ -43,10 +44,7 @@ target_link_libraries(geigen
   /usr/local/magma/lib/libmagma.a
 )
 
-add_executable(prototype
-  src/prototype.cpp
-)
-
-target_link_libraries(prototype
-  geigen
-)
+if (BUILD_PROTOTYPE)
+  add_executable(prototype src/prototype.cpp)
+  target_link_libraries(prototype geigen)
+endif()
