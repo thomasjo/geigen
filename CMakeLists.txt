@@ -9,9 +9,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror -Wall -Wextra -Wpedantic")
 # Provide Xcode 7.3 side-by-side support...
 if(EXISTS "$ENV{XCODE73_DIR}")
   set(MACOS_SDK_DIR "$ENV{XCODE73_DIR}/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.11.sdk")
-  include_directories(BEFORE SYSTEM
-    ${MACOS_SDK_DIR}/usr/include
-  )
+  include_directories(BEFORE SYSTEM ${MACOS_SDK_DIR}/usr/include)
 endif()
 
 find_package(CUDA REQUIRED)
